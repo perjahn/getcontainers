@@ -16,7 +16,7 @@ Typical output:
 As the this util currently works, it requires a label ”version”
 on pods (apparently this is a convention according to istio's best
 practice). It would of course be possible to retrieve and/or
-calculate each container version from somewherse else, like the
+calculate each container version from somewhere else, like the
 hash of images or making it more dynamic, or whatever...
 
 Because the official k8s library is used, cluster credentials from
