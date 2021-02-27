@@ -13,7 +13,7 @@ Typical output:
     container1  1.3.0  1.2.0  1.2.0  1.1.0
     container2  4.5.0  4.5.0  4.4.0  4.1.0
 
-As the this util currently works, it requires a label ”version”
+As the this tool currently works, it requires a label ”version”
 on pods (apparently this is a convention according to istio's best
 practice). It would of course be possible to retrieve and/or
 calculate each container version from somewhere else, like the
