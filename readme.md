@@ -1,6 +1,6 @@
 This is a cli tool for visualizing versions of containers for multiple
-kubernetes clusters/environments. Using the -e parameter to specify
-environments, should be a substring of cluster names, particular useful
+kubernetes clusters/environments. Specify a comma separated list of
+environments, should be a substrings of cluster names, particular useful
 when each environment is using a multicluster setup.
 
 Example command line:
