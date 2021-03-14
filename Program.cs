@@ -186,7 +186,7 @@ namespace getcontainers
                 rows[row + 1].Different = ContainsDifferent(rows[row + 1].Data, treatMissingAsEqual);
             }
 
-            ShowTable(rows, showOnlyDifferent, treatMissingAsEqual);
+            ShowTable(rows, showOnlyDifferent);
         }
 
         static bool ContainsDifferent(string[][] data, bool treatMissingAsEqual)
@@ -296,7 +296,7 @@ namespace getcontainers
             return map;
         }
 
-        static void ShowTable(TableRow[] rows, bool showOnlyDifferent, bool treatMissingAsEqual)
+        static void ShowTable(TableRow[] rows, bool showOnlyDifferent)
         {
             if (rows.Length == 0)
             {
