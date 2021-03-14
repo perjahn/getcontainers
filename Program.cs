@@ -83,6 +83,13 @@ namespace getcontainers
         public string Reason { get; set; } = string.Empty;
     }
 
+    class TableRow
+    {
+        public string Name { get; set; } = string.Empty;
+        public string[][] Data { get; set; } = { };
+        public bool Different { get; set; } = false;
+    }
+
     class Program
     {
         static async Task<int> Main(string[] args)
@@ -92,6 +99,7 @@ namespace getcontainers
             var showOnlyDifferent = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-d");
             var treatMissingAsEqual = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-m");
             var includeOther = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-o");
+            var showNamespaces = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-s");
             var timeoutSeconds = ArgumentParser.ExtractArgumentInt(parsedArguments, "-t", 10);
             var excludeContainers = ArgumentParser.ExtractArgumentValues(parsedArguments, "-x");
             var excludeClusters = ArgumentParser.ExtractArgumentValues(parsedArguments, "-xc");
@@ -100,15 +108,16 @@ namespace getcontainers
             if (parsedArguments.Count != 1)
             {
                 Console.WriteLine(
-                    "getcontainers 0.003 gamma - Shows containers for multiple environments in a table.\n" +
+                    "getcontainers 0.004 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
-                    "Usage: getcontainers <env1,env2,...> [-d] [-m] [-o] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
+                    "Usage: getcontainers <env1,env2,...> [-d] [-m] [-o] [-s] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
                     "Group clusters into sorted environments, using substring of cluster name. Non-matching clusters will be grouped into \"other\".\n" +
                     "\n" +
                     "-d:  Show only containers having different versions.\n" +
                     "-m:  Treat missing environments as equal when comparing diff.\n" +
                     "-o:  Group non-included environments in an \"other\" environment.\n" +
+                    "-s:  Show namespaces.\n" +
                     "-t:  Timeout in seconds (10s default).\n" +
                     "-x:  Exclude containers, using substring in container name.\n" +
                     "-xc: Exclude clusters, using substring in cluster name.\n" +
@@ -129,7 +138,7 @@ namespace getcontainers
                 return 1;
             }
 
-            ShowPods(pods, environments, showOnlyDifferent, treatMissingAsEqual, includeOther);
+            ShowPods(pods, environments, showOnlyDifferent, treatMissingAsEqual, showNamespaces, includeOther);
 
             return 0;
         }
@@ -140,47 +149,75 @@ namespace getcontainers
             return pod;
         }
 
-        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool treatMissingAsEqual, bool includeOther)
+        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool treatMissingAsEqual, bool showNamespaces, bool includeOther)
         {
             var actualEnvironments = GetActualEnvironments(pods, environments, includeOther);
             var environmentmap = GetClusterMap(pods, environments);
 
             var containers = pods.SelectMany(p => p.Containers).Select(c => c.Name).Distinct().OrderBy(n => n).ToArray();
-            var columns = (new[] { "Container" }).Concat(actualEnvironments).ToArray();
+            var rows = new TableRow[containers.Length + 1];
 
-            var table = new string[containers.Length + 1, columns.Length];
-
-            for (var row = 0; row <= containers.Length; row++)
+            rows[0] = new TableRow();
+            rows[0].Name = "Container";
+            rows[0].Data = new string[actualEnvironments.Length][];
+            rows[0].Different = false;
+            for (int col = 0; col < actualEnvironments.Length; col++)
             {
-                for (int col = 0; col < columns.Length; col++)
+                rows[0].Data[col] = new[] { actualEnvironments[col] };
+            }
+            for (var row = 0; row < containers.Length; row++)
+            {
+                rows[row + 1] = new TableRow();
+                if (showNamespaces)
                 {
-                    if (row == 0)
-                    {
-                        table[0, col] = columns[col];
-                    }
-                    else
-                    {
-                        if (col == 0)
-                        {
-                            table[row, 0] = containers[row - 1];
-                        }
-                        else
-                        {
-                            string container = containers[row - 1];
-                            string environment = actualEnvironments[col - 1];
-                            string[] versions = GetContainerVersions(pods, container, environment, actualEnvironments);
-                            string v = string.Join(", ", versions);
-                            if (v.Length > 35)
-                            {
-                                v = $"<<< {versions.Length} >>>";
-                            }
-                            table[row, col] = v;
-                        }
-                    }
+                    rows[row + 1].Name = $"{containers[row]} ({string.Join(", ", pods.SelectMany(p => p.Containers.Where(c => c.Name == containers[row]).Select(c => p.Namespace)).Distinct().OrderBy(n => n))})";
                 }
+                else
+                {
+                    rows[row + 1].Name = containers[row];
+                }
+                rows[row + 1].Data = new string[actualEnvironments.Length][];
+                for (int col = 0; col < actualEnvironments.Length; col++)
+                {
+                    string container = containers[row];
+                    string environment = actualEnvironments[col];
+                    rows[row + 1].Data[col] = GetContainerVersions(pods, container, environment, actualEnvironments);
+                }
+                rows[row + 1].Different = ContainsDifferent(rows[row + 1].Data, treatMissingAsEqual);
             }
 
-            ShowTable(table, showOnlyDifferent, treatMissingAsEqual);
+            ShowTable(rows, showOnlyDifferent, treatMissingAsEqual);
+        }
+
+        static bool ContainsDifferent(string[][] data, bool treatMissingAsEqual)
+        {
+            if (data.Length == 0)
+            {
+                return false;
+            }
+
+            if (!treatMissingAsEqual)
+            {
+                return data.Skip(1).Any(a => !Enumerable.SequenceEqual(data[0], a));
+            }
+
+            var empty = new string[] { };
+
+            string[] firstValue = empty;
+            for (int i = 0; i < data.Length; i++)
+            {
+                if (data[i].Length > 0)
+                {
+                    firstValue = data[i];
+                    break;
+                }
+            }
+            if (firstValue == empty)
+            {
+                return false;
+            }
+
+            return data.Skip(1).Any(a => a.Length > 0 && !Enumerable.SequenceEqual(data[0], a));
         }
 
         static string[] GetContainerVersions(Pod[] pods, string container, string environment, string[] actualEnvironments)
@@ -259,100 +296,117 @@ namespace getcontainers
             return map;
         }
 
-        static void ShowTable(string[,] items, bool showOnlyDifferent, bool treatMissingAsEqual)
+        static void ShowTable(TableRow[] rows, bool showOnlyDifferent, bool treatMissingAsEqual)
         {
-            int[] maxwidths = GetMaxWidths(items);
+            if (rows.Length == 0)
+            {
+                return;
+            }
 
             string separator = new string(' ', 2);
+            int[] maxwidths = GetMaxWidths(rows, separator, Console.WindowWidth);
+            bool headerRow = true;
 
-            int rowcount = items.GetLength(0);
-            int colcount = items.GetLength(1);
-
-            for (int row = 0; row < rowcount; row++)
+            for (int i = 0; i < maxwidths.Length; i++)
             {
-                bool diff = false;
+                Log($"Maxwidth {i}: {maxwidths[i]}");
+            }
+
+            foreach (var row in rows)
+            {
                 var output = new StringBuilder();
 
-                string firstValue = GetFirstValue(items, row, treatMissingAsEqual);
+                output.AppendFormat("{0,-" + maxwidths[0] + "}", row.Name);
 
-                for (int col = 0; col < colcount; col++)
+                for (int col = 0; col < row.Data.Length; col++)
                 {
-                    if (col > 0)
+                    var value = string.Join(", ", row.Data[col]);
+                    if (value.Length > maxwidths[col + 1])
                     {
-                        if (!treatMissingAsEqual && firstValue != items[row, col])
-                        {
-                            diff = true;
-                        }
-                        if (treatMissingAsEqual && (items[row, col] != string.Empty && firstValue != items[row, col]))
-                        {
-                            diff = true;
-                        }
-                        output.Append(separator);
+                        value = $"<<< {row.Data[col].Length} >>>";
                     }
-                    output.AppendFormat("{0,-" + maxwidths[col] + "}", items[row, col]);
+                    output.AppendFormat("{0}{1,-" + maxwidths[col + 1] + "}", separator, value);
                 }
 
-                if (diff)
+                string textrow = output.ToString().TrimEnd();
+
+                if (headerRow)
                 {
-                    if (showOnlyDifferent)
-                    {
-                        Log(output.ToString().TrimEnd());
-                    }
-                    else
-                    {
-                        Log(output.ToString().TrimEnd(), ConsoleColor.Yellow);
-                    }
+                    Log(textrow);
+                    headerRow = false;
                 }
                 else
                 {
-                    if (!showOnlyDifferent)
+                    if (row.Different)
                     {
-                        Log(output.ToString().TrimEnd(), ConsoleColor.Green);
-                    }
-                }
-            }
-        }
-
-        private static string GetFirstValue(string[,] items, int row, bool treatMissingAsEqual)
-        {
-            if (!treatMissingAsEqual)
-            {
-                return items[row, 1];
-            }
-
-            for (int col = 1; col < items.GetLength(1); col++)
-            {
-                if (items[row, col] != string.Empty)
-                {
-                    return items[row, col];
-                }
-            }
-
-            return string.Empty;
-        }
-
-        static int[] GetMaxWidths(string[,] items)
-        {
-            int rowcount = items.GetLength(0);
-            int colcount = items.GetLength(1);
-            int[] maxwidths = new int[colcount];
-
-            for (var row = 0; row < rowcount; row++)
-            {
-                for (var col = 0; col < colcount; col++)
-                {
-                    if (row == 0)
-                    {
-                        maxwidths[col] = items[row, col].Length;
+                        if (showOnlyDifferent)
+                        {
+                            Log(textrow);
+                        }
+                        else
+                        {
+                            Log(textrow, ConsoleColor.Yellow);
+                        }
                     }
                     else
                     {
-                        if (items[row, col].Length > maxwidths[col])
+                        if (!showOnlyDifferent)
                         {
-                            maxwidths[col] = items[row, col].Length;
+                            Log(textrow, ConsoleColor.Green);
                         }
                     }
                 }
+            }
+        }
+
+        static int[] GetMaxWidths(TableRow[] rows, string separator, int consolewidth)
+        {
+            if (rows.Length == 0)
+            {
+                return new int[] { };
+            }
+
+            int[] maxwidths = new int[rows[0].Data.Length + 1];
+
+            for (var row = 0; row < rows.Length; row++)
+            {
+                int length = rows[row].Name.Length;
+                if (row == 0 || length > maxwidths[0])
+                {
+                    maxwidths[0] = length;
+                }
+
+                for (var col = 0; col < rows[row].Data.Length; col++)
+                {
+                    length = (string.Join(", ", rows[row].Data[col])).Length;
+                    if (row == 0 || length > maxwidths[col + 1])
+                    {
+                        maxwidths[col + 1] = length;
+                    }
+                }
+            }
+
+            int max = maxwidths.Skip(1).Max();
+            while (max > 1 && maxwidths.Sum() + separator.Length * rows[0].Data.Length > consolewidth)
+            {
+                for (int col = 1; col < maxwidths.Length; col++)
+                {
+                    if (maxwidths[col] >= max)
+                    {
+                        int newmax = rows.Max(r =>
+                        {
+                            string value = string.Join(", ", r.Data[col - 1]);
+                            if (value.Length >= max && r.Data[col - 1].Length > 1)
+                            {
+                                value = $"<<< {r.Data[col - 1].Length} >>>";
+                            }
+                            return value.Length;
+                        });
+
+                        maxwidths[col] = newmax;
+                    }
+                }
+                max--;
             }
 
             return maxwidths;
