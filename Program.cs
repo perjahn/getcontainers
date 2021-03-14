@@ -89,26 +89,34 @@ namespace getcontainers
         {
             var parsedArguments = args.ToList();
 
-            var environments = ArgumentParser.ExtractArgumentValues(parsedArguments, "-e");
+            var showOnlyDifferent = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-d");
+            var treatMissingAsEqual = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-m");
+            var includeOther = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-o");
             var timeoutSeconds = ArgumentParser.ExtractArgumentInt(parsedArguments, "-t", 10);
             var excludeContainers = ArgumentParser.ExtractArgumentValues(parsedArguments, "-x");
             var excludeClusters = ArgumentParser.ExtractArgumentValues(parsedArguments, "-xc");
             var excludeNamespaces = ArgumentParser.ExtractArgumentValues(parsedArguments, "-xn");
 
-            if (parsedArguments.Count != 0)
+            if (parsedArguments.Count != 1)
             {
                 Console.WriteLine(
-                    "getcontainers 0.001 gamma - Shows containers for multiple environments in a table.\n" +
+                    "getcontainers 0.003 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
-                    "Usage: getcontainers [-e env1,env2,...] [-t 123] [-x container1,container2,...]  [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
+                    "Usage: getcontainers <env1,env2,...> [-d] [-m] [-o] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
-                    "-e:  Group clusters into sorted environments, using substring of cluster name. Non-matching clusters will be grouped into \"other\".\n" +
+                    "Group clusters into sorted environments, using substring of cluster name. Non-matching clusters will be grouped into \"other\".\n" +
+                    "\n" +
+                    "-d:  Show only containers having different versions.\n" +
+                    "-m:  Treat missing environments as equal when comparing diff.\n" +
+                    "-o:  Group non-included environments in an \"other\" environment.\n" +
                     "-t:  Timeout in seconds (10s default).\n" +
                     "-x:  Exclude containers, using substring in container name.\n" +
                     "-xc: Exclude clusters, using substring in cluster name.\n" +
                     "-xn: Exclude namespaces, using substring in namespace name.");
                 return 1;
             }
+
+            var environments = parsedArguments[0].Split(',');
 
             var pods = (await GetAllPods(excludeClusters, timeoutSeconds))
                 .Where(p => !excludeNamespaces.Any(n => p.Namespace.Contains(n, StringComparison.OrdinalIgnoreCase)))
@@ -121,7 +129,7 @@ namespace getcontainers
                 return 1;
             }
 
-            ShowPods(pods, environments);
+            ShowPods(pods, environments, showOnlyDifferent, treatMissingAsEqual, includeOther);
 
             return 0;
         }
@@ -132,9 +140,9 @@ namespace getcontainers
             return pod;
         }
 
-        static void ShowPods(Pod[] pods, string[] environments)
+        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool treatMissingAsEqual, bool includeOther)
         {
-            var actualEnvironments = GetActualEnvironments(pods, environments);
+            var actualEnvironments = GetActualEnvironments(pods, environments, includeOther);
             var environmentmap = GetClusterMap(pods, environments);
 
             var containers = pods.SelectMany(p => p.Containers).Select(c => c.Name).Distinct().OrderBy(n => n).ToArray();
@@ -172,7 +180,7 @@ namespace getcontainers
                 }
             }
 
-            ShowTable(table);
+            ShowTable(table, showOnlyDifferent, treatMissingAsEqual);
         }
 
         static string[] GetContainerVersions(Pod[] pods, string container, string environment, string[] actualEnvironments)
@@ -207,13 +215,16 @@ namespace getcontainers
             return versions.Distinct().OrderBy(v => v).ToArray();
         }
 
-        static string[] GetActualEnvironments(Pod[] pods, string[] environments)
+        static string[] GetActualEnvironments(Pod[] pods, string[] environments, bool includeOther)
         {
             var actual = environments.Where(e => pods.Any(p => p.Cluster.Contains(e))).ToList();
 
-            if (pods.Any(p => !environments.Any(e => p.Cluster.Contains(e))))
+            if (includeOther)
             {
-                actual.Add("other");
+                if (pods.Any(p => !environments.Any(e => p.Cluster.Contains(e))))
+                {
+                    actual.Add("other");
+                }
             }
 
             return actual.ToArray();
@@ -248,7 +259,7 @@ namespace getcontainers
             return map;
         }
 
-        static void ShowTable(string[,] items)
+        static void ShowTable(string[,] items, bool showOnlyDifferent, bool treatMissingAsEqual)
         {
             int[] maxwidths = GetMaxWidths(items);
 
@@ -259,19 +270,65 @@ namespace getcontainers
 
             for (int row = 0; row < rowcount; row++)
             {
+                bool diff = false;
                 var output = new StringBuilder();
+
+                string firstValue = GetFirstValue(items, row, treatMissingAsEqual);
 
                 for (int col = 0; col < colcount; col++)
                 {
                     if (col > 0)
                     {
+                        if (!treatMissingAsEqual && firstValue != items[row, col])
+                        {
+                            diff = true;
+                        }
+                        if (treatMissingAsEqual && (items[row, col] != string.Empty && firstValue != items[row, col]))
+                        {
+                            diff = true;
+                        }
                         output.Append(separator);
                     }
                     output.AppendFormat("{0,-" + maxwidths[col] + "}", items[row, col]);
                 }
 
-                Console.WriteLine(output.ToString().TrimEnd());
+                if (diff)
+                {
+                    if (showOnlyDifferent)
+                    {
+                        Log(output.ToString().TrimEnd());
+                    }
+                    else
+                    {
+                        Log(output.ToString().TrimEnd(), ConsoleColor.Yellow);
+                    }
+                }
+                else
+                {
+                    if (!showOnlyDifferent)
+                    {
+                        Log(output.ToString().TrimEnd(), ConsoleColor.Green);
+                    }
+                }
             }
+        }
+
+        private static string GetFirstValue(string[,] items, int row, bool treatMissingAsEqual)
+        {
+            if (!treatMissingAsEqual)
+            {
+                return items[row, 1];
+            }
+
+            for (int col = 1; col < items.GetLength(1); col++)
+            {
+                if (items[row, col] != string.Empty)
+                {
+                    return items[row, col];
+                }
+            }
+
+            return string.Empty;
         }
 
         static int[] GetMaxWidths(string[,] items)
@@ -299,6 +356,19 @@ namespace getcontainers
             }
 
             return maxwidths;
+        }
+
+        static void Log(string message)
+        {
+            Console.WriteLine(message);
+        }
+
+        static void Log(string message, ConsoleColor color)
+        {
+            var oldColor = Console.ForegroundColor;
+            Console.ForegroundColor = color;
+            Console.WriteLine(message);
+            Console.ForegroundColor = oldColor;
         }
 
         static async Task<List<Pod>> GetAllPods(string[] excludeClusters, int timeoutSeconds)

@@ -5,7 +5,7 @@ when each environment is using a multicluster setup.
 
 Example command line:
 
-    dotnet run -- -e dev,test,qa,prod
+    dotnet run -- dev,test,qa,prod
 
 Typical output:
 
