@@ -96,6 +96,7 @@ namespace getcontainers
         {
             var parsedArguments = args.ToList();
 
+            var expandVersions = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-a");
             var showOnlyDifferent = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-d");
             var treatMissingAsEqual = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-m");
             var includeOther = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-o");
@@ -110,10 +111,11 @@ namespace getcontainers
                 Console.WriteLine(
                     "getcontainers 0.004 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
-                    "Usage: getcontainers <env1,env2,...> [-d] [-m] [-o] [-s] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
+                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-m] [-o] [-s] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
                     "Group clusters into sorted environments, using substring of cluster name. Non-matching clusters will be grouped into \"other\".\n" +
                     "\n" +
+                    "-a:  Expand multi version containers.\n" +
                     "-d:  Show only containers having different versions.\n" +
                     "-m:  Treat missing environments as equal when comparing diff.\n" +
                     "-o:  Group non-included environments in an \"other\" environment.\n" +
@@ -138,7 +140,7 @@ namespace getcontainers
                 return 1;
             }
 
-            ShowPods(pods, environments, showOnlyDifferent, treatMissingAsEqual, showNamespaces, includeOther);
+            ShowPods(pods, environments, showOnlyDifferent, expandVersions, treatMissingAsEqual, showNamespaces, includeOther);
 
             return 0;
         }
@@ -149,7 +151,7 @@ namespace getcontainers
             return pod;
         }
 
-        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool treatMissingAsEqual, bool showNamespaces, bool includeOther)
+        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool expandVersions, bool treatMissingAsEqual, bool showNamespaces, bool includeOther)
         {
             var actualEnvironments = GetActualEnvironments(pods, environments, includeOther);
             var environmentmap = GetClusterMap(pods, environments);
@@ -184,6 +186,16 @@ namespace getcontainers
                     rows[row + 1].Data[col] = GetContainerVersions(pods, container, environment, actualEnvironments);
                 }
                 rows[row + 1].Different = ContainsDifferent(rows[row + 1].Data, treatMissingAsEqual);
+                if (!expandVersions)
+                {
+                    for (int col = 0; col < actualEnvironments.Length; col++)
+                    {
+                        if (rows[row + 1].Data[col].Length > 1)
+                        {
+                            rows[row + 1].Data[col] = new[] { $"<<< {rows[row + 1].Data[col].Length} >>>" };
+                        }
+                    }
+                }
             }
 
             ShowTable(rows, showOnlyDifferent);
