@@ -319,11 +319,6 @@ namespace getcontainers
             int[] maxwidths = GetMaxWidths(rows, separator, Console.WindowWidth);
             bool headerRow = true;
 
-            for (int i = 0; i < maxwidths.Length; i++)
-            {
-                Log($"Maxwidth {i}: {maxwidths[i]}");
-            }
-
             foreach (var row in rows)
             {
                 var output = new StringBuilder();
