@@ -98,6 +98,7 @@ namespace getcontainers
 
             var expandVersions = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-a");
             var showOnlyDifferent = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-d");
+            var outputHtmlFile = ArgumentParser.ExtractArgumentValue(parsedArguments, "-h");
             var treatMissingAsEqual = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-m");
             var includeOther = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-o");
             var showNamespaces = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-s");
@@ -111,12 +112,13 @@ namespace getcontainers
                 Console.WriteLine(
                     "getcontainers 0.004 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
-                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-m] [-o] [-s] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
+                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-o] [-s] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
                     "Group clusters into sorted environments, using substring of cluster name. Non-matching clusters will be grouped into \"other\".\n" +
                     "\n" +
                     "-a:  Expand multi version containers.\n" +
                     "-d:  Show only containers having different versions.\n" +
+                    "-h:  Output to html file.\n" +
                     "-m:  Treat missing environments as equal when comparing diff.\n" +
                     "-o:  Group non-included environments in an \"other\" environment.\n" +
                     "-s:  Show namespaces.\n" +
@@ -140,7 +142,7 @@ namespace getcontainers
                 return 1;
             }
 
-            ShowPods(pods, environments, showOnlyDifferent, expandVersions, treatMissingAsEqual, showNamespaces, includeOther);
+            ShowPods(pods, environments, showOnlyDifferent, expandVersions, treatMissingAsEqual, showNamespaces, includeOther, outputHtmlFile);
 
             return 0;
         }
@@ -151,7 +153,7 @@ namespace getcontainers
             return pod;
         }
 
-        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool expandVersions, bool treatMissingAsEqual, bool showNamespaces, bool includeOther)
+        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool expandVersions, bool treatMissingAsEqual, bool showNamespaces, bool includeOther, string outputHtmlFile)
         {
             var actualEnvironments = GetActualEnvironments(pods, environments, includeOther);
             var environmentmap = GetClusterMap(pods, environments);
@@ -186,19 +188,16 @@ namespace getcontainers
                     rows[row + 1].Data[col] = GetContainerVersions(pods, container, environment, actualEnvironments);
                 }
                 rows[row + 1].Different = ContainsDifferent(rows[row + 1].Data, treatMissingAsEqual);
-                if (!expandVersions)
-                {
-                    for (int col = 0; col < actualEnvironments.Length; col++)
-                    {
-                        if (rows[row + 1].Data[col].Length > 1)
-                        {
-                            rows[row + 1].Data[col] = new[] { $"<<< {rows[row + 1].Data[col].Length} >>>" };
-                        }
-                    }
-                }
             }
 
-            ShowTable(rows, showOnlyDifferent);
+            if (outputHtmlFile != string.Empty)
+            {
+                SaveTableHtml(rows, showOnlyDifferent, expandVersions, outputHtmlFile);
+            }
+            else
+            {
+                ShowTable(rows, showOnlyDifferent, expandVersions);
+            }
         }
 
         static bool ContainsDifferent(string[][] data, bool treatMissingAsEqual)
@@ -232,6 +231,11 @@ namespace getcontainers
             return data.Skip(1).Any(a => a.Length > 0 && !Enumerable.SequenceEqual(data[0], a));
         }
 
+        class SortableVersion
+        {
+            public string[] Version { get; set; } = new string[] { };
+        }
+
         static string[] GetContainerVersions(Pod[] pods, string container, string environment, string[] actualEnvironments)
         {
             var versions = new List<string>();
@@ -261,7 +265,66 @@ namespace getcontainers
                 versions.Add(".");
             }
 
-            return versions.Distinct().OrderBy(v => v).ToArray();
+            var versionsArray = versions.Distinct().ToArray();
+
+            Array.Sort(versionsArray, CompareVersions);
+
+            return versionsArray;
+        }
+
+        static int CompareVersions(string version1, string version2)
+        {
+            int result = Compare(version1, version2);
+            return result;
+        }
+
+        /*
+        Returns a signed integer that indicates the relative values of version1 and version2:
+        - -1: version1 is less than version2
+        - 0: version1 is equal to version2
+        - 1: version1 is greater than version2
+        */
+        static int Compare(string version1, string version2)
+        {
+            var separators = new char[] { '.', '-' };
+            string[] v1 = version1.Split(separators);
+            string[] v2 = version2.Split(separators);
+            int elements = Math.Min(v1.Length, v2.Length);
+            for (int i = 0; i < elements; i++)
+            {
+                if (int.TryParse(v1[i], out int i1) && int.TryParse(v2[i], out int i2))
+                {
+                    if (i1 < i2)
+                    {
+                        return -1;
+                    }
+                    if (i1 > i2)
+                    {
+                        return 1;
+                    }
+                    if (i1 == i2)
+                    {
+                        continue;
+                    }
+                }
+
+                int result = string.Compare(v1[i], v2[i], StringComparison.OrdinalIgnoreCase);
+                if (result < 0)
+                {
+                    return -1;
+                }
+                if (result > 0)
+                {
+                    return 1;
+                }
+            }
+
+            if (v1.Length == v2.Length)
+            {
+                return 0;
+            }
+
+            return v1.Length < v2.Length ? -1 : 1;
         }
 
         static string[] GetActualEnvironments(Pod[] pods, string[] environments, bool includeOther)
@@ -308,15 +371,31 @@ namespace getcontainers
             return map;
         }
 
-        static void ShowTable(TableRow[] rows, bool showOnlyDifferent)
+        static void ShowTable(TableRow[] rows, bool showOnlyDifferent, bool expandVersions)
         {
             if (rows.Length == 0)
             {
                 return;
             }
 
+            string formatStringMulti = "<<< {0} >>>";
+
+            if (!expandVersions)
+            {
+                foreach (var row in rows)
+                {
+                    for (int col = 0; col < row.Data.Length; col++)
+                    {
+                        if (row.Data[col].Length > 1)
+                        {
+                            row.Data[col] = new[] { string.Format(formatStringMulti, row.Data[col].Length) };
+                        }
+                    }
+                }
+            }
+
             string separator = new string(' ', 2);
-            int[] maxwidths = GetMaxWidths(rows, separator, Console.WindowWidth);
+            int[] maxwidths = GetMaxWidths(rows, separator, Console.WindowWidth, formatStringMulti);
             bool headerRow = true;
 
             foreach (var row in rows)
@@ -330,7 +409,7 @@ namespace getcontainers
                     var value = string.Join(", ", row.Data[col]);
                     if (value.Length > maxwidths[col + 1])
                     {
-                        value = $"<<< {row.Data[col].Length} >>>";
+                        value = string.Format(formatStringMulti, row.Data[col].Length);
                     }
                     output.AppendFormat("{0}{1,-" + maxwidths[col + 1] + "}", separator, value);
                 }
@@ -366,7 +445,100 @@ namespace getcontainers
             }
         }
 
-        static int[] GetMaxWidths(TableRow[] rows, string separator, int consolewidth)
+        static void SaveTableHtml(TableRow[] rows, bool showOnlyDifferent, bool expandVersions, string filename)
+        {
+            if (rows.Length == 0)
+            {
+                return;
+            }
+
+            string formatStringMulti = "<<< {0} >>>";
+
+            bool headerRow = true;
+
+            var output = new StringBuilder();
+
+            output.AppendLine(
+@"<html><head><style>
+body, th, td {
+  font-family: Arial, Helvetica, sans-serif
+}
+body {
+  background-color: black;
+}
+table {
+  border-collapse: collapse;
+}
+th, td {
+  color: white;
+  vertical-align: top;
+  text-align: left;
+  border: solid 1px white;
+  white-space: nowrap;
+}
+.diff { color: #FFFF00; }
+.nodiff { color: #00FF00; }
+</style></head><body><table>");
+
+            foreach (var row in rows)
+            {
+                if (!row.Different && showOnlyDifferent)
+                {
+                    continue;
+                }
+
+                string colorAttribute = string.Empty;
+
+                if (!showOnlyDifferent)
+                {
+                    colorAttribute = row.Different ? " class='diff'" : " class='nodiff'";
+                }
+
+                output.Append("<tr>");
+
+                output.Append(headerRow ? $"<th>{row.Name}</th>" : $"<td{colorAttribute}>{row.Name}</td>");
+
+                foreach (var values in row.Data)
+                {
+                    if (expandVersions)
+                    {
+                        var value = string.Join("<br/>", values);
+                        output.Append(headerRow ? $"<th>{value}</th>" : $"<td{colorAttribute}>{value}</td>");
+                    }
+                    else
+                    {
+                        if (values.Length > 1)
+                        {
+                            string titleAttribute = $" title='{string.Join("\n", values)}'";
+                            var value = string.Format(formatStringMulti, values.Length);
+                            output.Append(headerRow ? $"<th>{value}</th>" : $"<td{colorAttribute}{titleAttribute}>{value}</td>");
+                        }
+                        else if (values.Length == 1)
+                        {
+                            output.Append(headerRow ? $"<th>{values[0]}</th>" : $"<td{colorAttribute}>{values[0]}</td>");
+                        }
+                        else
+                        {
+                            output.Append(headerRow ? "<th></th>" : "<td></td>");
+                        }
+                    }
+                }
+
+                output.AppendLine("</tr>");
+
+                if (headerRow)
+                {
+                    headerRow = false;
+                }
+            }
+
+            output.AppendLine($"</table></body></html>");
+
+            Log($"Saving html file: '{filename}'");
+            File.WriteAllText(filename, output.ToString());
+        }
+
+        static int[] GetMaxWidths(TableRow[] rows, string separator, int consolewidth, string formatStringMulti)
         {
             if (rows.Length == 0)
             {
@@ -405,7 +577,7 @@ namespace getcontainers
                             string value = string.Join(", ", r.Data[col - 1]);
                             if (value.Length >= max && r.Data[col - 1].Length > 1)
                             {
-                                value = $"<<< {r.Data[col - 1].Length} >>>";
+                                value = string.Format(formatStringMulti, r.Data[col - 1].Length);
                             }
                             return value.Length;
                         });
