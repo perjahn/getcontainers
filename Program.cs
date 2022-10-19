@@ -1,16 +1,14 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using k8s;
+using k8s.Autorest;
 using k8s.Exceptions;
 using k8s.Models;
-using Microsoft.Rest;
 
 namespace getcontainers
 {
@@ -110,11 +108,11 @@ namespace getcontainers
             if (parsedArguments.Count != 1)
             {
                 Console.WriteLine(
-                    "getcontainers 0.004 gamma - Shows containers for multiple environments in a table.\n" +
+                    "getcontainers 0.005 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
                     "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-o] [-s] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
-                    "Group clusters into sorted environments, using substring of cluster name. Non-matching clusters will be grouped into \"other\".\n" +
+                    "Group clusters into sorted environments, using substring of cluster name. Non-matching clusters can be grouped into \"other\".\n" +
                     "\n" +
                     "-a:  Expand multi version containers.\n" +
                     "-d:  Show only containers having different versions.\n" +
@@ -147,7 +145,7 @@ namespace getcontainers
             return 0;
         }
 
-        private static Pod ExcludeContainers(Pod pod, string[] excludeContainers)
+        static Pod ExcludeContainers(Pod pod, string[] excludeContainers)
         {
             pod.Containers = pod.Containers.Where(c => !excludeContainers.Any(ec => c.Name.Contains(ec, StringComparison.OrdinalIgnoreCase))).ToArray();
             return pod;
@@ -158,6 +156,7 @@ namespace getcontainers
             var actualEnvironments = GetActualEnvironments(pods, environments, includeOther);
             var environmentmap = GetClusterMap(pods, environments);
 
+            //.Where(c => c.Name)
             var containers = pods.SelectMany(p => p.Containers).Select(c => c.Name).Distinct().OrderBy(n => n).ToArray();
             var rows = new TableRow[containers.Length + 1];
 
@@ -565,7 +564,11 @@ th, td {
                 }
             }
 
-            int max = maxwidths.Skip(1).Max();
+            int max = 0;
+            if (maxwidths.Length > 1)
+            {
+                max = maxwidths.Skip(1).Max();
+            }
             while (max > 1 && maxwidths.Sum() + separator.Length * rows[0].Data.Length > consolewidth)
             {
                 for (int col = 1; col < maxwidths.Length; col++)
@@ -651,7 +654,7 @@ th, td {
             var newList = new List<Pod>();
             try
             {
-                var task = client.ListPodForAllNamespacesAsync();
+                var task = client.CoreV1.ListPodForAllNamespacesAsync();
                 if (await Task.WhenAny(task, Task.Delay(timeoutSeconds * 1000)) == task)
                 {
                     pods = await task;
