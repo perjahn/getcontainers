@@ -101,6 +101,9 @@ namespace getcontainers
             var includeOther = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-o");
             var showNamespaces = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-s");
             var timeoutSeconds = ArgumentParser.ExtractArgumentInt(parsedArguments, "-t", 10);
+            var includeContainers = ArgumentParser.ExtractArgumentValues(parsedArguments, "-i");
+            var includeClusters = ArgumentParser.ExtractArgumentValues(parsedArguments, "-ic");
+            var includeNamespaces = ArgumentParser.ExtractArgumentValues(parsedArguments, "-in");
             var excludeContainers = ArgumentParser.ExtractArgumentValues(parsedArguments, "-x");
             var excludeClusters = ArgumentParser.ExtractArgumentValues(parsedArguments, "-xc");
             var excludeNamespaces = ArgumentParser.ExtractArgumentValues(parsedArguments, "-xn");
@@ -108,9 +111,11 @@ namespace getcontainers
             if (parsedArguments.Count != 1)
             {
                 Console.WriteLine(
-                    "getcontainers 0.005 gamma - Shows containers for multiple environments in a table.\n" +
+                    "getcontainers 0.006 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
-                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-o] [-s] [-t 123] [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
+                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-o] [-s] [-t 123]\n" +
+                    "  [-i container1,container2,...] [-ic cluster1,cluster2,...] [-in namespace1,namespace2,...]\n" +
+                    "  [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
                     "Group clusters into sorted environments, using substring of cluster name. Non-matching clusters can be grouped into \"other\".\n" +
                     "\n" +
@@ -121,16 +126,21 @@ namespace getcontainers
                     "-o:  Group non-included environments in an \"other\" environment.\n" +
                     "-s:  Show namespaces.\n" +
                     "-t:  Timeout in seconds (10s default).\n" +
-                    "-x:  Exclude containers, using substring in container name.\n" +
-                    "-xc: Exclude clusters, using substring in cluster name.\n" +
-                    "-xn: Exclude namespaces, using substring in namespace name.");
+                    "-i:  Include containers, using substring of container name.\n" +
+                    "-ic: Include clusters, using substring of cluster name.\n" +
+                    "-in: Include namespaces, using substring of namespace name.\n" +
+                    "-x:  Exclude containers, using substring of container name.\n" +
+                    "-xc: Exclude clusters, using substring of cluster name.\n" +
+                    "-xn: Exclude namespaces, using substring of namespace name.");
                 return 1;
             }
 
             var environments = parsedArguments[0].Split(',');
 
-            var pods = (await GetAllPods(excludeClusters, timeoutSeconds))
+            var pods = (await GetAllPods(includeClusters, excludeClusters, timeoutSeconds))
+                .Where(p => includeNamespaces.Length == 0 || includeNamespaces.Any(n => p.Namespace.Contains(n, StringComparison.OrdinalIgnoreCase)))
                 .Where(p => !excludeNamespaces.Any(n => p.Namespace.Contains(n, StringComparison.OrdinalIgnoreCase)))
+                .Select(p => IncludeContainers(p, includeContainers))
                 .Select(p => ExcludeContainers(p, excludeContainers))
                 .ToArray();
 
@@ -143,6 +153,15 @@ namespace getcontainers
             ShowPods(pods, environments, showOnlyDifferent, expandVersions, treatMissingAsEqual, showNamespaces, includeOther, outputHtmlFile);
 
             return 0;
+        }
+
+        static Pod IncludeContainers(Pod pod, string[] includeContainers)
+        {
+            if (includeContainers.Length > 0)
+            {
+                pod.Containers = pod.Containers.Where(c => includeContainers.Any(ec => c.Name.Contains(ec, StringComparison.OrdinalIgnoreCase))).ToArray();
+            }
+            return pod;
         }
 
         static Pod ExcludeContainers(Pod pod, string[] excludeContainers)
@@ -607,19 +626,41 @@ th, td {
             Console.ForegroundColor = oldColor;
         }
 
-        static async Task<List<Pod>> GetAllPods(string[] excludeClusters, int timeoutSeconds)
+        static async Task<List<Pod>> GetAllPods(string[] includeClusters, string[] excludeClusters, int timeoutSeconds)
         {
             var config = KubernetesClientConfiguration.LoadKubeConfig();
             var clusters = new List<string>();
 
-            foreach (var context in config.Contexts.OrderBy(c => c.Name))
+            if (includeClusters.Length == 0)
             {
-                if (excludeClusters.Any(e => context.Name.Contains(e)))
+                foreach (var context in config.Contexts.OrderBy(c => c.Name))
                 {
-                    Console.WriteLine($"Excluding cluster: '{context.Name}'");
-                    continue;
+                    clusters.Add(context.Name);
                 }
-                clusters.Add(context.Name);
+            }
+            else
+            {
+                foreach (var context in config.Contexts.OrderBy(c => c.Name))
+                {
+                    if (includeClusters.Any(i => context.Name.Contains(i)))
+                    {
+                        Console.WriteLine($"Including cluster: '{context.Name}'");
+                        clusters.Add(context.Name);
+                    }
+                }
+            }
+
+            for (int i = 0; i < clusters.Count;)
+            {
+                if (excludeClusters.Any(e => clusters[i] == e))
+                {
+                    Console.WriteLine($"Excluding cluster: '{clusters[i]}'");
+                    clusters.RemoveAt(i);
+                }
+                else
+                {
+                    i++;
+                }
             }
 
             var allpods = new List<Task<List<Pod>>>();
