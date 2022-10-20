@@ -13,11 +13,11 @@ Typical output:
     container1  1.3.0  1.2.0  1.2.0  1.1.0
     container2  4.5.0  4.5.0  4.4.0  4.1.0
 
-As this tool currently works, it requires a label ”version” on pods,
-which is apparently a convention according to istio's best practice.
-It would of course be possible to retrieve and/or calculate each
-container version from somewhere else, like the hash of images or
-making it more dynamic, or whatever...
+As default this tool is extracting each image version, but it is also
+possible to use the label ”version” of pods, which apparently is a
+convention according to istio's best practice. It would of course have
+been possible to retrieve and/or calculate each version from somewhere
+else, like the hash of images or making it more dynamic, or whatever...
 
 Because the official k8s library is used, cluster credentials from
 ~/.kube/config are used. I.e. you must first login to every cluster

@@ -101,6 +101,7 @@ namespace getcontainers
             var includeOther = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-o");
             var showNamespaces = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-s");
             var timeoutSeconds = ArgumentParser.ExtractArgumentInt(parsedArguments, "-t", 10);
+            var useLabelVersion = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-v");
             var includeContainers = ArgumentParser.ExtractArgumentValues(parsedArguments, "-i");
             var includeClusters = ArgumentParser.ExtractArgumentValues(parsedArguments, "-ic");
             var includeNamespaces = ArgumentParser.ExtractArgumentValues(parsedArguments, "-in");
@@ -113,7 +114,7 @@ namespace getcontainers
                 Console.WriteLine(
                     "getcontainers 0.006 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
-                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-o] [-s] [-t 123]\n" +
+                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-o] [-s] [-t 123] [-v]\n" +
                     "  [-i container1,container2,...] [-ic cluster1,cluster2,...] [-in namespace1,namespace2,...]\n" +
                     "  [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
@@ -126,6 +127,7 @@ namespace getcontainers
                     "-o:  Group non-included environments in an \"other\" environment.\n" +
                     "-s:  Show namespaces.\n" +
                     "-t:  Timeout in seconds (10s default).\n" +
+                    "-v:  Use version label instead of container version.\n" +
                     "-i:  Include containers, using substring of container name.\n" +
                     "-ic: Include clusters, using substring of cluster name.\n" +
                     "-in: Include namespaces, using substring of namespace name.\n" +
@@ -150,7 +152,7 @@ namespace getcontainers
                 return 1;
             }
 
-            ShowPods(pods, environments, showOnlyDifferent, expandVersions, treatMissingAsEqual, showNamespaces, includeOther, outputHtmlFile);
+            ShowPods(pods, environments, showOnlyDifferent, expandVersions, treatMissingAsEqual, showNamespaces, includeOther, useLabelVersion, outputHtmlFile);
 
             return 0;
         }
@@ -170,12 +172,11 @@ namespace getcontainers
             return pod;
         }
 
-        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool expandVersions, bool treatMissingAsEqual, bool showNamespaces, bool includeOther, string outputHtmlFile)
+        static void ShowPods(Pod[] pods, string[] environments, bool showOnlyDifferent, bool expandVersions, bool treatMissingAsEqual, bool showNamespaces, bool includeOther, bool useLabelVersion, string outputHtmlFile)
         {
             var actualEnvironments = GetActualEnvironments(pods, environments, includeOther);
             var environmentmap = GetClusterMap(pods, environments);
 
-            //.Where(c => c.Name)
             var containers = pods.SelectMany(p => p.Containers).Select(c => c.Name).Distinct().OrderBy(n => n).ToArray();
             var rows = new TableRow[containers.Length + 1];
 
@@ -203,7 +204,7 @@ namespace getcontainers
                 {
                     string container = containers[row];
                     string environment = actualEnvironments[col];
-                    rows[row + 1].Data[col] = GetContainerVersions(pods, container, environment, actualEnvironments);
+                    rows[row + 1].Data[col] = GetContainerVersions(pods, container, environment, actualEnvironments, useLabelVersion);
                 }
                 rows[row + 1].Different = ContainsDifferent(rows[row + 1].Data, treatMissingAsEqual);
             }
@@ -254,7 +255,7 @@ namespace getcontainers
             public string[] Version { get; set; } = new string[] { };
         }
 
-        static string[] GetContainerVersions(Pod[] pods, string container, string environment, string[] actualEnvironments)
+        static string[] GetContainerVersions(Pod[] pods, string container, string environment, string[] actualEnvironments, bool useLabelVersion)
         {
             var versions = new List<string>();
 
@@ -268,11 +269,29 @@ namespace getcontainers
                         ||
                         (environment != "other" && pod.Cluster.Contains(environment)))
                     {
-                        if (pod.Labels.ContainsKey("version"))
+                        var containers = pod.Containers.Where(c => c.Name == container).ToArray();
+                        if (useLabelVersion)
                         {
-                            var version = pod.Labels["version"];
-                            versions.Add(version);
+                            if (pod.Labels.ContainsKey("version"))
+                            {
+                                var version = pod.Labels["version"];
+                                versions.Add(version);
+                            }
                         }
+                        else
+                        {
+                            foreach (var c in containers)
+                            {
+                                var i = c.Image.IndexOf(':');
+                                var version = i >= 0 ? c.Image.Substring(i + 1) : c.Image;
+                                if (version.StartsWith('v'))
+                                {
+                                    version = version.Substring(1);
+                                }
+                                versions.Add(version);
+                            }
+                        }
+
                         found = true;
                     }
                 }
