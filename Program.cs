@@ -282,8 +282,25 @@ namespace getcontainers
                         {
                             foreach (var c in containers)
                             {
-                                var i = c.Image.IndexOf(':');
-                                var version = i >= 0 ? c.Image.Substring(i + 1) : c.Image;
+                                var start = c.Image.IndexOf(':');
+                                string version;
+                                if (start >= 0)
+                                {
+                                    var end = c.Image.IndexOf('@', start + 1);
+                                    if (end >= 0)
+                                    {
+                                        version = c.Image.Substring(start + 1, end - start - 1);
+                                    }
+                                    else
+                                    {
+                                        version = c.Image.Substring(start + 1);
+                                    }
+                                }
+                                else
+                                {
+                                    version = c.Image;
+                                }
+
                                 if (version.StartsWith('v'))
                                 {
                                     version = version.Substring(1);
