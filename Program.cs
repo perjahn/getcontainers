@@ -455,27 +455,31 @@ namespace getcontainers
 
                 if (headerRow)
                 {
-                    Log(textrow);
+                    Console.WriteLine(textrow);
                     headerRow = false;
                 }
                 else
                 {
+                    const string yellowAnsi = "\u001b[33m";
+                    const string greenAnsi = "\u001b[32m";
+                    const string resetAnsi = "\u001b[0m";
+
                     if (row.Different)
                     {
                         if (showOnlyDifferent)
                         {
-                            Log(textrow);
+                            Console.WriteLine(textrow);
                         }
                         else
                         {
-                            Log(textrow, ConsoleColor.Yellow);
+                            Console.WriteLine($"{yellowAnsi}{textrow}{resetAnsi}");
                         }
                     }
                     else
                     {
                         if (!showOnlyDifferent)
                         {
-                            Log(textrow, ConsoleColor.Green);
+                            Console.WriteLine($"{greenAnsi}{textrow}{resetAnsi}");
                         }
                     }
                 }
@@ -571,7 +575,7 @@ th, td {
 
             output.AppendLine($"</table></body></html>");
 
-            Log($"Saving html file: '{filename}'");
+            Console.WriteLine($"Saving html file: '{filename}'");
             File.WriteAllText(filename, output.ToString());
         }
 
@@ -630,19 +634,6 @@ th, td {
             }
 
             return maxwidths;
-        }
-
-        static void Log(string message)
-        {
-            Console.WriteLine(message);
-        }
-
-        static void Log(string message, ConsoleColor color)
-        {
-            var oldColor = Console.ForegroundColor;
-            Console.ForegroundColor = color;
-            Console.WriteLine(message);
-            Console.ForegroundColor = oldColor;
         }
 
         static async Task<List<Pod>> GetAllPods(string[] includeClusters, string[] excludeClusters, int timeoutSeconds)
