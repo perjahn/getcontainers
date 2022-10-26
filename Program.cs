@@ -98,8 +98,8 @@ namespace getcontainers
             var showOnlyDifferent = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-d");
             var outputHtmlFile = ArgumentParser.ExtractArgumentValue(parsedArguments, "-h");
             var treatMissingAsEqual = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-m");
+            var showNamespaces = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-n");
             var includeOther = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-o");
-            var showNamespaces = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-s");
             var timeoutSeconds = ArgumentParser.ExtractArgumentInt(parsedArguments, "-t", 10);
             var useLabelVersion = ArgumentParser.ExtractArgumentFlag(parsedArguments, "-v");
             var includeContainers = ArgumentParser.ExtractArgumentValues(parsedArguments, "-i");
@@ -112,9 +112,9 @@ namespace getcontainers
             if (parsedArguments.Count != 1)
             {
                 Console.WriteLine(
-                    "getcontainers 0.006 gamma - Shows containers for multiple environments in a table.\n" +
+                    "getcontainers 0.007 gamma - Shows containers for multiple environments in a table.\n" +
                     "\n" +
-                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-o] [-s] [-t 123] [-v]\n" +
+                    "Usage: getcontainers <env1,env2,...> [-a] [-d] [-h file] [-m] [-n] [-o] [-t 123] [-v]\n" +
                     "  [-i container1,container2,...] [-ic cluster1,cluster2,...] [-in namespace1,namespace2,...]\n" +
                     "  [-x container1,container2,...] [-xc cluster1,cluster2,...] [-xn namespace1,namespace2,...]\n" +
                     "\n" +
@@ -124,10 +124,10 @@ namespace getcontainers
                     "-d:  Show only containers having different versions.\n" +
                     "-h:  Output to html file.\n" +
                     "-m:  Treat missing environments as equal when comparing diff.\n" +
+                    "-n:  Show namespaces.\n" +
                     "-o:  Group non-included environments in an \"other\" environment.\n" +
-                    "-s:  Show namespaces.\n" +
                     "-t:  Timeout in seconds (10s default).\n" +
-                    "-v:  Use version label instead of container version.\n" +
+                    "-v:  Use version label of pod instead of container image version.\n" +
                     "-i:  Include containers, using substring of container name.\n" +
                     "-ic: Include clusters, using substring of cluster name.\n" +
                     "-in: Include namespaces, using substring of namespace name.\n" +
@@ -221,33 +221,36 @@ namespace getcontainers
 
         static bool ContainsDifferent(string[][] data, bool treatMissingAsEqual)
         {
-            if (data.Length == 0)
+            if (data.Length <= 1)
             {
                 return false;
             }
 
-            if (!treatMissingAsEqual)
-            {
-                return data.Skip(1).Any(a => !Enumerable.SequenceEqual(data[0], a));
-            }
-
-            var empty = new string[] { };
-
-            string[] firstValue = empty;
+            int firstValue = -1;
             for (int i = 0; i < data.Length; i++)
             {
-                if (data[i].Length > 0)
+                if (!treatMissingAsEqual || data[i].Length > 0)
                 {
-                    firstValue = data[i];
-                    break;
+                    if (firstValue >= 0)
+                    {
+                        if (data[firstValue].Length != data[i].Length)
+                        {
+                            return true;
+                        }
+
+                        for (int j = 0; j < data[i].Length; j++)
+                        {
+                            if (data[firstValue][j] != data[i][j])
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                    firstValue = i;
                 }
             }
-            if (firstValue == empty)
-            {
-                return false;
-            }
 
-            return data.Skip(1).Any(a => a.Length > 0 && !Enumerable.SequenceEqual(data[0], a));
+            return false;
         }
 
         class SortableVersion
