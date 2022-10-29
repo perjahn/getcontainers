@@ -1,3 +1,5 @@
+[![Build](https://github.com/perjahn/getcontainers/workflows/Build/badge.svg)](https://github.com/perjahn/getcontainers/actions?query=workflow%3A%22Build%22)
+
 This is a cli tool for visualizing versions of containers for multiple
 kubernetes clusters/environments. Specify a comma separated list of
 environments, should be a substrings of cluster names, particular useful
