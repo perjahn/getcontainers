@@ -6,7 +6,7 @@ namespace getcontainers
     {
         public static string ExtractArgumentValue(List<string> args, string flagname)
         {
-            int index = args.IndexOf(flagname);
+            var index = args.IndexOf(flagname);
             if (index >= 0 && args.Count > index + 1)
             {
                 var value = args[index + 1];
@@ -21,16 +21,12 @@ namespace getcontainers
 
         public static int ExtractArgumentInt(List<string> args, string flagname, int defaultValue)
         {
-            int index = args.IndexOf(flagname);
+            var index = args.IndexOf(flagname);
             if (index >= 0 && args.Count > index + 1)
             {
                 var value = args[index + 1];
                 args.RemoveRange(index, 2);
-                if (int.TryParse(value, out int intValue))
-                {
-                    return intValue;
-                }
-                return defaultValue;
+                return int.TryParse(value, out int intValue) ? intValue : defaultValue;
             }
             else
             {
@@ -40,7 +36,7 @@ namespace getcontainers
 
         public static string[] ExtractArgumentValues(List<string> args, string flagname)
         {
-            int index = args.IndexOf(flagname);
+            var index = args.IndexOf(flagname);
             if (index >= 0 && args.Count > index + 1)
             {
                 var values = args[index + 1].Split(',');
@@ -49,13 +45,13 @@ namespace getcontainers
             }
             else
             {
-                return new string[] { };
+                return [];
             }
         }
 
         public static bool ExtractArgumentFlag(List<string> args, string flagname)
         {
-            int index = args.IndexOf(flagname);
+            var index = args.IndexOf(flagname);
             if (index >= 0)
             {
                 args.RemoveAt(index);
@@ -69,25 +65,25 @@ namespace getcontainers
 
         public static Dictionary<string, string> ExtractArgumentDictionary(List<string> args, string flagname)
         {
-            int index = args.IndexOf(flagname);
+            var index = args.IndexOf(flagname);
             if (index >= 0 && args.Count > index + 1)
             {
                 var values = args[index + 1].Split(',');
                 args.RemoveRange(index, 2);
-                var dic = new Dictionary<string, string>();
+                Dictionary<string, string> dic = [];
                 foreach (var value in values)
                 {
                     index = value.IndexOf('=');
                     if (index >= 0)
                     {
-                        dic.Add(value.Substring(0, index), value.Substring(index + 1));
+                        dic.Add(value[..index], value[(index + 1)..]);
                     }
                 }
                 return dic;
             }
             else
             {
-                return new Dictionary<string, string>();
+                return [];
             }
         }
     }
