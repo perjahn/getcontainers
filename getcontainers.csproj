@@ -8,12 +8,8 @@
     <AnalysisMode>All</AnalysisMode>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevelStyle>preview</AnalysisLevelStyle>
-    <NoWarn>CA1303,CA1305,CA1307,CA1820,CA1852,CA2007,IDE0008,IDE0040,IDE0210</NoWarn>
+    <NoWarn>CA1303,CA1305,CA1307,CA1310,CA1812,CA1822,CA1852,CA2007,CA2234,IDE0008,IDE0040,IDE0210</NoWarn>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="KubernetesClient" Version="16.0.2" />
-  </ItemGroup>
 
 </Project>
